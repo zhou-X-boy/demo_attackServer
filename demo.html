@@ -1,0 +1,1585 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>账号自动化工具</title>
+        <style>
+            body {
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+                padding: 20px;
+                background-color: #f0f2f5;
+                color: #333;
+            }
+            .container {
+                max-width: 800px;
+                margin: 0 auto;
+                background: white;
+                padding: 30px;
+                border-radius: 8px;
+                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            }
+            h1 {
+                text-align: center;
+                color: #007bff;
+                margin-bottom: 20px;
+            }
+            .controls {
+                display: flex;
+                justify-content: center;
+                gap: 20px;
+                margin-bottom: 30px;
+            }
+            button {
+                padding: 12px 24px;
+                font-size: 16px;
+                cursor: pointer;
+                border: none;
+                border-radius: 5px;
+                background-color: #007bff;
+                color: white;
+                transition: background-color 0.3s;
+            }
+            button:disabled {
+                background-color: #ccc;
+                cursor: not-allowed;
+            }
+            button:hover:not(:disabled) {
+                background-color: #0056b3;
+            }
+            .log-container {
+                border: 1px solid #e9ecef;
+                border-radius: 5px;
+                padding: 20px;
+                height: 400px;
+                overflow-y: auto;
+                background-color: #f8f9fa;
+                font-family: 'Courier New', Courier, monospace;
+                font-size: 14px;
+                line-height: 1.6;
+            }
+            .log-entry {
+                margin-bottom: 10px;
+                padding: 8px;
+                border-radius: 4px;
+            }
+            .log-entry.info {
+                background-color: #e9f7ef;
+                color: #28a745;
+            }
+            .log-entry.error {
+                background-color: #fdf2f8;
+                color: #dc3545;
+            }
+            .log-entry.warning {
+                background-color: #fff3cd;
+                color: #ffc107;
+            }
+            .status-bar {
+                margin-top: 20px;
+                padding: 15px;
+                background-color: #e9ecef;
+                border-radius: 5px;
+                font-weight: bold;
+                text-align: center;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>账号自动化工具</h1>
+
+            <div class="controls">
+                <button id="startBtn">开始执行（注册->登录->创建订单）</button>
+                <button id="clearBtn">清空日志</button>
+            </div>
+
+            <div class="status-bar" id="statusBar">准备就绪</div>
+
+            <div class="log-container" id="logContainer">
+                <!-- 日志将在这里显示 -->
+            </div>
+        </div>
+
+        <script>
+            // ==================== 你的原始 JavaScript 代码 ====================
+
+            // 账号数据结构定义：{username, password, isLoggedIn, hasCreatedOrder, createdAt, updatedAt}
+            let createdAccounts = [];
+
+            // 获取当前的账号组数
+            const getAccountGroupCount = () => {
+                try {
+                    const count = localStorage.getItem('accountGroupCount');
+                    return count ? parseInt(count, 10) : 0;
+                } catch (error) {
+                    console.error('获取账号组数失败：', error);
+                    return 0;
+                }
+            };
+
+            // 创建新的账号组
+            const createAccountGroup = accounts => {
+                try {
+                    const groupCount = getAccountGroupCount();
+                    const newGroupId = groupCount + 1;
+
+                    // 为每个账号添加状态信息
+                    const accountsWithStatus = accounts.map(account => ({
+                        ...account,
+                        isLoggedIn: false,
+                        hasCreatedOrder: false,
+                        createdAt: new Date().toISOString(),
+                        updatedAt: new Date().toISOString(),
+                    }));
+
+                    const groupData = {
+                        groupId: newGroupId,
+                        accounts: accountsWithStatus,
+                        createdAt: new Date().toISOString(),
+                        updatedAt: new Date().toISOString(),
+                    };
+
+                    // 存储账号组
+                    localStorage.setItem(`accountGroup_${newGroupId}`, JSON.stringify(groupData));
+                    // 更新账号组数
+                    localStorage.setItem('accountGroupCount', newGroupId.toString());
+
+                    console.log(`账号组 ${newGroupId} 已创建并存储到localStorage，包含 ${accounts.length} 个账号`);
+                    return newGroupId;
+                } catch (error) {
+                    console.error('创建账号组失败：', error);
+                    return null;
+                }
+            };
+
+            // 读取指定账号组
+            const getAccountGroup = groupId => {
+                try {
+                    const groupData = localStorage.getItem(`accountGroup_${groupId}`);
+                    return groupData ? JSON.parse(groupData) : null;
+                } catch (error) {
+                    console.error(`读取账号组 ${groupId} 失败：`, error);
+                    return null;
+                }
+            };
+
+            // 更新账号组
+            const updateAccountGroup = (groupId, updatedGroup) => {
+                try {
+                    const groupData = {
+                        ...updatedGroup,
+                        updatedAt: new Date().toISOString(),
+                    };
+                    localStorage.setItem(`accountGroup_${groupId}`, JSON.stringify(groupData));
+                    // console.log(`账号组 ${groupId} 已更新`);
+                    return true;
+                } catch (error) {
+                    console.error(`更新账号组 ${groupId} 失败：`, error);
+                    return false;
+                }
+            };
+
+            // 更新单个账号的状态
+            const updateAccountStatus = (groupId, username, updates) => {
+                try {
+                    const group = getAccountGroup(groupId);
+                    if (!group) return false;
+
+                    const accountIndex = group.accounts.findIndex(acc => acc.username === username);
+                    if (accountIndex === -1) return false;
+
+                    group.accounts[accountIndex] = {
+                        ...group.accounts[accountIndex],
+                        ...updates,
+                        updatedAt: new Date().toISOString(),
+                    };
+
+                    return updateAccountGroup(groupId, group);
+                } catch (error) {
+                    console.error(`更新账号 ${username} 状态失败：`, error);
+                    return false;
+                }
+            };
+
+            const Cookie =
+                'uuid=37064bf0-3f6a-4377-8552-6b57ea01df15; twk_idm_key=xq6BpEHA2iRc9BUDaxSrI; TawkConnectionTime=0; twk_uuid_6592c3920ff6374032bae6d1=%7B%22uuid%22%3A%221.1vXauRfPSHsUHoH5ixT8QPmrdVpZmvwyQNjK9V7CuAu5ONhpeWJFLu6cvM2Gg99qFbB7MR3fozNd9JyxVingdIXLHfhlHvcykEBBm6edmfVPcPQgrXxTZKj%22%2C%22version%22%3A3%2C%22domain%22%3A%2216888usdt.com%22%2C%22ts%22%3A1763687433746%7D';
+
+            const registerWithFetch = async () => {
+                // 1. 路径：与 curl 完全一致（不要用代理，先直接请求测试）
+                const url = '/trx/register';
+                const areaMap = [
+                    {
+                        value: -10,
+                        label: '中国',
+                        englishLabel: 'China',
+                    },
+                    {
+                        value: -9,
+                        label: '中国香港',
+                        englishLabel: 'China HongKong',
+                    },
+                    {
+                        value: -8,
+                        label: '中国澳门',
+                        englishLabel: 'China AoMen',
+                    },
+                    {
+                        value: -7,
+                        label: '中国台湾',
+                        englishLabel: 'China TaiWan',
+                    },
+                    {
+                        value: 1,
+                        label: '阿富汗',
+                        englishLabel: 'Afghanistan',
+                    },
+                    {
+                        value: 2,
+                        label: '奥兰群岛',
+                        englishLabel: 'Aland Islands',
+                    },
+                    {
+                        value: 3,
+                        label: '阿尔巴尼亚',
+                        englishLabel: 'Albania',
+                    },
+                    {
+                        value: 4,
+                        label: '阿尔及利亚',
+                        englishLabel: 'Algeria',
+                    },
+                    {
+                        value: 5,
+                        label: '美属萨摩亚',
+                        englishLabel: 'American Samoa',
+                    },
+                    {
+                        value: 6,
+                        label: '安道尔',
+                        englishLabel: 'Andorra',
+                    },
+                    {
+                        value: 7,
+                        label: '安哥拉',
+                        englishLabel: 'Angola',
+                    },
+                    {
+                        value: 8,
+                        label: '安圭拉',
+                        englishLabel: 'Anguilla',
+                    },
+                    {
+                        value: 9,
+                        label: '安提瓜和巴布达',
+                        englishLabel: 'Antigua and Barbuda',
+                    },
+                    {
+                        value: 10,
+                        label: '阿根廷',
+                        englishLabel: 'Argentina',
+                    },
+                    {
+                        value: 11,
+                        label: '亚美尼亚',
+                        englishLabel: 'Armenia',
+                    },
+                    {
+                        value: 12,
+                        label: '阿鲁巴',
+                        englishLabel: 'Aruba',
+                    },
+                    {
+                        value: 13,
+                        label: '澳大利亚',
+                        englishLabel: 'Australia',
+                    },
+                    {
+                        value: 14,
+                        label: '奥地利',
+                        englishLabel: 'Austria',
+                    },
+                    {
+                        value: 15,
+                        label: '阿塞拜疆',
+                        englishLabel: 'Azerbaijan',
+                    },
+                    {
+                        value: 16,
+                        label: '孟加拉',
+                        englishLabel: 'Bangladesh',
+                    },
+                    {
+                        value: 17,
+                        label: '巴林',
+                        englishLabel: 'Bahrain',
+                    },
+                    {
+                        value: 18,
+                        label: '巴哈马',
+                        englishLabel: 'Bahamas',
+                    },
+                    {
+                        value: 19,
+                        label: '巴巴多斯',
+                        englishLabel: 'Barbados',
+                    },
+                    {
+                        value: 20,
+                        label: '白俄罗斯',
+                        englishLabel: 'Belarus',
+                    },
+                    {
+                        value: 21,
+                        label: '比利时',
+                        englishLabel: 'Belgium',
+                    },
+                    {
+                        value: 22,
+                        label: '伯利兹',
+                        englishLabel: 'Belize',
+                    },
+                    {
+                        value: 23,
+                        label: '贝宁',
+                        englishLabel: 'Benin',
+                    },
+                    {
+                        value: 24,
+                        label: '百慕大',
+                        englishLabel: 'Bermuda',
+                    },
+                    {
+                        value: 25,
+                        label: '不丹',
+                        englishLabel: 'Bhutan',
+                    },
+                    {
+                        value: 26,
+                        label: '玻利维亚',
+                        englishLabel: 'Bolivia',
+                    },
+                    {
+                        value: 27,
+                        label: '波斯尼亚和黑塞哥维那',
+                        englishLabel: 'Bosnia and Herzegovina',
+                    },
+                    {
+                        value: 28,
+                        label: '博茨瓦纳',
+                        englishLabel: 'Botswana',
+                    },
+                    {
+                        value: 100,
+                        label: '布维岛',
+                        englishLabel: 'Bouvet Island',
+                    },
+                    {
+                        value: 101,
+                        label: '巴西',
+                        englishLabel: 'Brazil',
+                    },
+                    {
+                        value: 102,
+                        label: '文莱',
+                        englishLabel: 'Brunei',
+                    },
+                    {
+                        value: 103,
+                        label: '保加利亚',
+                        englishLabel: 'Bulgaria',
+                    },
+                    {
+                        value: 104,
+                        label: '布基纳法索',
+                        englishLabel: 'Burkina Faso',
+                    },
+                    {
+                        value: 105,
+                        label: '布隆迪',
+                        englishLabel: 'Burundi',
+                    },
+                    {
+                        value: 106,
+                        label: '柬埔寨',
+                        englishLabel: 'Cambodia',
+                    },
+                    {
+                        value: 107,
+                        label: '喀麦隆',
+                        englishLabel: 'Cameroon',
+                    },
+                    {
+                        value: 110,
+                        label: '加拿大',
+                        englishLabel: 'Canada',
+                    },
+                    {
+                        value: 111,
+                        label: '佛得角',
+                        englishLabel: 'Cape Verde',
+                    },
+                    {
+                        value: 112,
+                        label: '中非',
+                        englishLabel: 'Central African Republic',
+                    },
+                    {
+                        value: 113,
+                        label: '乍得',
+                        englishLabel: 'Chad',
+                    },
+                    {
+                        value: 115,
+                        label: '智利',
+                        englishLabel: 'Chile',
+                    },
+                    {
+                        value: 116,
+                        label: '圣诞岛',
+                        englishLabel: 'Christmas Islands',
+                    },
+                    {
+                        value: 117,
+                        label: '科科斯（基林）群岛',
+                        englishLabel: 'Cocos (keeling) Islands',
+                    },
+                    {
+                        value: 118,
+                        label: '哥伦比亚',
+                        englishLabel: 'Colombia',
+                    },
+                    {
+                        value: 119,
+                        label: '科摩罗',
+                        englishLabel: 'Comoros',
+                    },
+                    {
+                        value: 120,
+                        label: '刚果（金）',
+                        englishLabel: 'Congo (Congo-Kinshasa)',
+                    },
+                    {
+                        value: 121,
+                        label: '刚果',
+                        englishLabel: 'Congo',
+                    },
+                    {
+                        value: 122,
+                        label: '库克群岛',
+                        englishLabel: 'Cook Islands',
+                    },
+                    {
+                        value: 123,
+                        label: '哥斯达黎加',
+                        englishLabel: 'Costa Rica',
+                    },
+                    {
+                        value: 124,
+                        label: '科特迪瓦',
+                        englishLabel: "Cote D'Ivoire",
+                    },
+                    {
+                        value: 125,
+                        label: '中国',
+                        englishLabel: 'China',
+                    },
+                    {
+                        value: 126,
+                        label: '克罗地亚',
+                        englishLabel: 'Croatia',
+                    },
+                    {
+                        value: 127,
+                        label: '古巴',
+                        englishLabel: 'Cuba',
+                    },
+                    {
+                        value: 128,
+                        label: '捷克',
+                        englishLabel: 'Czech',
+                    },
+                    {
+                        value: 129,
+                        label: '塞浦路斯',
+                        englishLabel: 'Cyprus',
+                    },
+                    {
+                        value: 130,
+                        label: '丹麦',
+                        englishLabel: 'Denmark',
+                    },
+                    {
+                        value: 131,
+                        label: '吉布提',
+                        englishLabel: 'Djibouti',
+                    },
+                    {
+                        value: 132,
+                        label: '多米尼加',
+                        englishLabel: 'Dominica',
+                    },
+                    {
+                        value: 133,
+                        label: '厄瓜多尔',
+                        englishLabel: 'Ecuador',
+                    },
+                    {
+                        value: 134,
+                        label: '埃及',
+                        englishLabel: 'Egypt',
+                    },
+                    {
+                        value: 135,
+                        label: '赤道几内亚',
+                        englishLabel: 'Equatorial Guinea',
+                    },
+                    {
+                        value: 136,
+                        label: '厄立特里亚',
+                        englishLabel: 'Eritrea',
+                    },
+                    {
+                        value: 137,
+                        label: '爱沙尼亚',
+                        englishLabel: 'Estonia',
+                    },
+                    {
+                        value: 138,
+                        label: '埃塞俄比亚',
+                        englishLabel: 'Ethiopia',
+                    },
+                    {
+                        value: 139,
+                        label: '法罗群岛',
+                        englishLabel: 'Faroe Islands',
+                    },
+                    {
+                        value: 140,
+                        label: '斐济',
+                        englishLabel: 'Fiji',
+                    },
+                    {
+                        value: 141,
+                        label: '芬兰',
+                        englishLabel: 'Finland',
+                    },
+                    {
+                        value: 142,
+                        label: '法国',
+                        englishLabel: 'France',
+                    },
+                    {
+                        value: 143,
+                        label: '法国大都会',
+                        englishLabel: 'MetropolitanFrance',
+                    },
+                    {
+                        value: 144,
+                        label: '法属圭亚那',
+                        englishLabel: 'French Guiana',
+                    },
+                    {
+                        value: 145,
+                        label: '法属波利尼西亚',
+                        englishLabel: 'French Polynesia',
+                    },
+                    {
+                        value: 146,
+                        label: '加蓬',
+                        englishLabel: 'Gabon',
+                    },
+                    {
+                        value: 147,
+                        label: '冈比亚',
+                        englishLabel: 'Gambia',
+                    },
+                    {
+                        value: 148,
+                        label: '格鲁吉亚',
+                        englishLabel: 'Georgia',
+                    },
+                    {
+                        value: 149,
+                        label: '德国',
+                        englishLabel: 'Germany',
+                    },
+                    {
+                        value: 150,
+                        label: '加纳',
+                        englishLabel: 'Ghana',
+                    },
+                    {
+                        value: 151,
+                        label: '直布罗陀',
+                        englishLabel: 'Gibraltar',
+                    },
+                    {
+                        value: 152,
+                        label: '希腊',
+                        englishLabel: 'Greece',
+                    },
+                    {
+                        value: 153,
+                        label: '格林纳达',
+                        englishLabel: 'Grenada',
+                    },
+                    {
+                        value: 154,
+                        label: '瓜德罗普岛',
+                        englishLabel: 'Guadeloupe',
+                    },
+                    {
+                        value: 155,
+                        label: '关岛',
+                        englishLabel: 'Guam',
+                    },
+                    {
+                        value: 156,
+                        label: '危地马拉',
+                        englishLabel: 'Guatemala',
+                    },
+                    {
+                        value: 157,
+                        label: '根西岛',
+                        englishLabel: 'Guernsey',
+                    },
+                    {
+                        value: 158,
+                        label: '几内亚比绍',
+                        englishLabel: 'Guinea-Bissau',
+                    },
+                    {
+                        value: 159,
+                        label: '几内亚',
+                        englishLabel: 'Guinea',
+                    },
+                    {
+                        value: 160,
+                        label: '圭亚那',
+                        englishLabel: 'Guyana',
+                    },
+                    {
+                        value: 161,
+                        label: '海地',
+                        englishLabel: 'Haiti',
+                    },
+                    {
+                        value: 162,
+                        label: '洪都拉斯',
+                        englishLabel: 'Honduras',
+                    },
+                    {
+                        value: 163,
+                        label: '匈牙利',
+                        englishLabel: 'Hungary',
+                    },
+                    {
+                        value: 164,
+                        label: '冰岛',
+                        englishLabel: 'Iceland',
+                    },
+                    {
+                        value: 165,
+                        label: '印度',
+                        englishLabel: 'India',
+                    },
+                    {
+                        value: 166,
+                        label: '印度尼西亚',
+                        englishLabel: 'Indonesia',
+                    },
+                    {
+                        value: 167,
+                        label: '伊朗',
+                        englishLabel: 'Iran',
+                    },
+                    {
+                        value: 168,
+                        label: '伊拉克',
+                        englishLabel: 'Iraq',
+                    },
+                    {
+                        value: 169,
+                        label: '爱尔兰',
+                        englishLabel: 'Ireland',
+                    },
+                    {
+                        value: 170,
+                        label: '马恩岛',
+                        englishLabel: 'Isle of Man',
+                    },
+                    {
+                        value: 171,
+                        label: '以色列',
+                        englishLabel: 'Israel',
+                    },
+                    {
+                        value: 172,
+                        label: '意大利',
+                        englishLabel: 'Italy',
+                    },
+                    {
+                        value: 173,
+                        label: '牙买加',
+                        englishLabel: 'Jamaica',
+                    },
+                    {
+                        value: 174,
+                        label: '日本',
+                        englishLabel: 'Japan',
+                    },
+                    {
+                        value: 175,
+                        label: '泽西岛',
+                        englishLabel: 'Jersey',
+                    },
+                    {
+                        value: 176,
+                        label: '约旦',
+                        englishLabel: 'Jordan',
+                    },
+                    {
+                        value: 177,
+                        label: '哈萨克斯坦',
+                        englishLabel: 'Kazakhstan',
+                    },
+                    {
+                        value: 178,
+                        label: '肯尼亚',
+                        englishLabel: 'Kenya',
+                    },
+                    {
+                        value: 179,
+                        label: '基里巴斯',
+                        englishLabel: 'Kiribati',
+                    },
+                    {
+                        value: 180,
+                        label: '韩国',
+                        englishLabel: 'Korea (South)',
+                    },
+                    {
+                        value: 181,
+                        label: '朝鲜',
+                        englishLabel: 'Korea (North)',
+                    },
+                    {
+                        value: 182,
+                        label: '科威特',
+                        englishLabel: 'Kuwait',
+                    },
+                    {
+                        value: 183,
+                        label: '吉尔吉斯斯坦',
+                        englishLabel: 'Kyrgyzstan',
+                    },
+                    {
+                        value: 184,
+                        label: '老挝',
+                        englishLabel: 'Laos',
+                    },
+                    {
+                        value: 185,
+                        label: '拉脱维亚',
+                        englishLabel: 'Latvia',
+                    },
+                    {
+                        value: 186,
+                        label: '黎巴嫩',
+                        englishLabel: 'Lebanon',
+                    },
+                    {
+                        value: 187,
+                        label: '莱索托',
+                        englishLabel: 'Lesotho',
+                    },
+                    {
+                        value: 188,
+                        label: '利比里亚',
+                        englishLabel: 'Liberia',
+                    },
+                    {
+                        value: 189,
+                        label: '利比亚',
+                        englishLabel: 'Libya',
+                    },
+                    {
+                        value: 190,
+                        label: '列支敦士登',
+                        englishLabel: 'Liechtenstein',
+                    },
+                    {
+                        value: 191,
+                        label: '立陶宛',
+                        englishLabel: 'Lithuania',
+                    },
+                    {
+                        value: 192,
+                        label: '卢森堡',
+                        englishLabel: 'Luxembourg',
+                    },
+                    {
+                        value: 193,
+                        label: '马其顿',
+                        englishLabel: 'Macedonia',
+                    },
+                    {
+                        value: 194,
+                        label: '马拉维',
+                        englishLabel: 'Malawi',
+                    },
+                    {
+                        value: 195,
+                        label: '马来西亚',
+                        englishLabel: 'Malaysia',
+                    },
+                    {
+                        value: 196,
+                        label: '马达加斯加',
+                        englishLabel: 'Madagascar',
+                    },
+                    {
+                        value: 197,
+                        label: '马尔代夫',
+                        englishLabel: 'Maldives',
+                    },
+                    {
+                        value: 198,
+                        label: '马里',
+                        englishLabel: 'Mali',
+                    },
+                    {
+                        value: 199,
+                        label: '马耳他',
+                        englishLabel: 'Malta',
+                    },
+                    {
+                        value: 200,
+                        label: '马绍尔群岛',
+                        englishLabel: 'Marshall Islands',
+                    },
+                    {
+                        value: 201,
+                        label: '马提尼克岛',
+                        englishLabel: 'Martinique',
+                    },
+                    {
+                        value: 202,
+                        label: '毛里塔尼亚',
+                        englishLabel: 'Mauritania',
+                    },
+                    {
+                        value: 203,
+                        label: '毛里求斯',
+                        englishLabel: 'Mauritius',
+                    },
+                    {
+                        value: 204,
+                        label: '马约特',
+                        englishLabel: 'Mayotte',
+                    },
+                    {
+                        value: 205,
+                        label: '墨西哥',
+                        englishLabel: 'Mexico',
+                    },
+                    {
+                        value: 206,
+                        label: '密克罗尼西亚',
+                        englishLabel: 'Micronesia',
+                    },
+                    {
+                        value: 207,
+                        label: '摩尔多瓦',
+                        englishLabel: 'Moldova',
+                    },
+                    {
+                        value: 208,
+                        label: '摩纳哥',
+                        englishLabel: 'Monaco',
+                    },
+                    {
+                        value: 209,
+                        label: '蒙古',
+                        englishLabel: 'Mongolia',
+                    },
+                    {
+                        value: 210,
+                        label: '黑山',
+                        englishLabel: 'Montenegro',
+                    },
+                    {
+                        value: 211,
+                        label: '蒙特塞拉特',
+                        englishLabel: 'Montserrat',
+                    },
+                    {
+                        value: 212,
+                        label: '摩洛哥',
+                        englishLabel: 'Morocco',
+                    },
+                    {
+                        value: 213,
+                        label: '莫桑比克',
+                        englishLabel: 'Mozambique',
+                    },
+                    {
+                        value: 214,
+                        label: '缅甸',
+                        englishLabel: 'Myanmar',
+                    },
+                    {
+                        value: 215,
+                        label: '纳米比亚',
+                        englishLabel: 'Namibia',
+                    },
+                    {
+                        value: 216,
+                        label: '瑙鲁',
+                        englishLabel: 'Nauru',
+                    },
+                    {
+                        value: 217,
+                        label: '尼泊尔',
+                        englishLabel: 'Nepal',
+                    },
+                    {
+                        value: 218,
+                        label: '荷兰',
+                        englishLabel: 'Netherlands',
+                    },
+                    {
+                        value: 219,
+                        label: '新喀里多尼亚',
+                        englishLabel: 'New Caledonia',
+                    },
+                    {
+                        value: 220,
+                        label: '新西兰',
+                        englishLabel: 'New Zealand',
+                    },
+                    {
+                        value: 221,
+                        label: '尼加拉瓜',
+                        englishLabel: 'Nicaragua',
+                    },
+                    {
+                        value: 222,
+                        label: '尼日尔',
+                        englishLabel: 'Niger',
+                    },
+                    {
+                        value: 223,
+                        label: '尼日利亚',
+                        englishLabel: 'Nigeria',
+                    },
+                    {
+                        value: 224,
+                        label: '纽埃',
+                        englishLabel: 'Niue',
+                    },
+                    {
+                        value: 225,
+                        label: '诺福克岛',
+                        englishLabel: 'Norfolk Island',
+                    },
+                    {
+                        value: 226,
+                        label: '挪威',
+                        englishLabel: 'Norway',
+                    },
+                    {
+                        value: 227,
+                        label: '阿曼',
+                        englishLabel: 'Oman',
+                    },
+                    {
+                        value: 228,
+                        label: '巴基斯坦',
+                        englishLabel: 'Pakistan',
+                    },
+                    {
+                        value: 229,
+                        label: '帕劳',
+                        englishLabel: 'Palau',
+                    },
+                    {
+                        value: 230,
+                        label: '巴勒斯坦',
+                        englishLabel: 'Palestine',
+                    },
+                    {
+                        value: 231,
+                        label: '巴拿马',
+                        englishLabel: 'Panama',
+                    },
+                    {
+                        value: 232,
+                        label: '巴布亚新几内亚',
+                        englishLabel: 'Papua New Guinea',
+                    },
+                    {
+                        value: 233,
+                        label: '秘鲁',
+                        englishLabel: 'Peru',
+                    },
+                    {
+                        value: 234,
+                        label: '菲律宾',
+                        englishLabel: 'Philippines',
+                    },
+                    {
+                        value: 235,
+                        label: '皮特凯恩群岛',
+                        englishLabel: 'Pitcairn Islands',
+                    },
+                    {
+                        value: 236,
+                        label: '波兰',
+                        englishLabel: 'Poland',
+                    },
+                    {
+                        value: 237,
+                        label: '葡萄牙',
+                        englishLabel: 'Portugal',
+                    },
+                    {
+                        value: 238,
+                        label: '波多黎各',
+                        englishLabel: 'Puerto Rico',
+                    },
+                    {
+                        value: 239,
+                        label: '卡塔尔',
+                        englishLabel: 'Qatar',
+                    },
+                    {
+                        value: 240,
+                        label: '留尼汪岛',
+                        englishLabel: 'Reunion',
+                    },
+                    {
+                        value: 241,
+                        label: '罗马尼亚',
+                        englishLabel: 'Romania',
+                    },
+                ];
+                // 生成随机手机号
+                const generateRandomPhone = () => {
+                    // 中国手机号前缀
+                    const prefixes = [
+                        '130',
+                        '131',
+                        '132',
+                        '133',
+                        '134',
+                        '135',
+                        '136',
+                        '137',
+                        '138',
+                        '139',
+                        '150',
+                        '151',
+                        '152',
+                        '153',
+                        '155',
+                        '156',
+                        '157',
+                        '158',
+                        '159',
+                        '170',
+                        '171',
+                        '172',
+                        '173',
+                        '175',
+                        '176',
+                        '177',
+                        '178',
+                        '180',
+                        '181',
+                        '182',
+                        '183',
+                        '184',
+                        '185',
+                        '186',
+                        '187',
+                        '188',
+                        '189',
+                        '191',
+                        '195',
+                        '198',
+                        '199',
+                    ];
+
+                    // 随机选择一个前缀
+                    const prefix = prefixes[Math.floor(Math.random() * prefixes.length)];
+                    // 生成8位随机数字
+                    let suffix = '';
+                    for (let i = 0; i < 8; i++) {
+                        suffix += Math.floor(Math.random() * 10);
+                    }
+
+                    return prefix + suffix;
+                };
+
+                // 生成随机邮箱
+                const generateRandomEmail = () => {
+                    const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+                    const domains = [
+                        'gmail.com',
+                        'yahoo.com',
+                        'hotmail.com',
+                        'outlook.com',
+                        'qq.com',
+                        '163.com',
+                        '126.com',
+                        'sina.com',
+                        'sohu.com',
+                    ];
+
+                    // 生成3-12个字符的用户名
+                    const usernameLength = Math.floor(Math.random() * 10) + 3;
+                    let username = '';
+                    for (let i = 0; i < usernameLength; i++) {
+                        username += chars.charAt(Math.floor(Math.random() * chars.length));
+                    }
+
+                    // 随机选择一个域名
+                    const domain = domains[Math.floor(Math.random() * domains.length)];
+
+                    return username + '@' + domain;
+                };
+
+                // 生成随机用户名（手机号或邮箱）
+                const generateRandomUsername = () => {
+                    // 随机选择生成手机号或邮箱（50%概率）
+                    const isPhone = Math.random() < 0.5;
+
+                    if (isPhone) {
+                        return generateRandomPhone();
+                    } else {
+                        return generateRandomEmail();
+                    }
+                };
+
+                // 生成指定长度的随机UUID字符串
+                const generateRandomUUID = length => {
+                    const chars = 'abcdef0123456789';
+                    let result = '';
+                    for (let i = 0; i < length; i++) {
+                        result += chars.charAt(Math.floor(Math.random() * chars.length));
+                    }
+                    return result;
+                };
+
+                // 随机生成包含英文和数字的四位数验证码
+                function generateVerificationCode() {
+                    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+                    let result = '';
+                    // 确保至少包含一个字母和一个数字
+                    let hasLetter = false;
+                    let hasNumber = false;
+
+                    while (result.length < 4 || !hasLetter || !hasNumber) {
+                        result = '';
+                        hasLetter = false;
+                        hasNumber = false;
+
+                        for (let i = 0; i < 4; i++) {
+                            const char = chars.charAt(Math.floor(Math.random() * chars.length));
+                            result += char;
+                            if (/[a-zA-Z]/.test(char)) hasLetter = true;
+                            if (/[0-9]/.test(char)) hasNumber = true;
+                        }
+                    }
+                    return result;
+                }
+
+                let username = generateRandomUsername();
+                let password = username; // 密码与用户名相同
+                let area = areaMap[Math.floor(Math.random() * areaMap.length)].label;
+                let areaValue = areaMap.find(item => item.label === area)?.value;
+                let uuid = generateRandomUUID(32); // 生成32个字符的UUID
+                let code = generateVerificationCode();
+                // 2. 请求体：与 curl --data-raw 完全一致（字符串形式，避免 JSON.stringify 可能的差异）
+                const body = `{"username":"${username}","password":"${password}","area":"${area}","areaValue":${areaValue},"inviteCode":"","phone":"","code":"${code}","uuid":"${uuid}"}`;
+
+                try {
+                    const response = await fetch(url, {
+                        method: 'POST',
+                        // 3. 请求头：完全复制 curl 的 -H 参数（顺序可忽略，但字段必须全有，无多余）
+                        headers: {
+                            accept: 'application/json, text/plain, */*',
+                            'accept-language': 'zh-CN,zh;q=0.9',
+                            'cache-control': 'no-cache',
+                            'content-type': 'application/json',
+                            lang: 'zh-CN',
+                            origin: 'https://www.16888usdt.com',
+                            pragma: 'no-cache',
+                            priority: 'u=1, i',
+                            referer: 'https://www.16888usdt.com/',
+                            'sec-ch-ua': '"Not/A)Brand";v="8", "Chromium";v="131", "Google Chrome";v="131"',
+                            'sec-ch-ua-mobile': '?0',
+                            'sec-ch-ua-platform': '"Windows"',
+                            'sec-fetch-dest': 'empty',
+                            'sec-fetch-mode': 'cors',
+                            'sec-fetch-site': 'same-origin',
+                            'user-agent':
+                                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.6825.71 Safari/537.36',
+                            'x-requested-with': 'XMLHttpRequest',
+                            // Cookie：完全复制 curl 的 -b 参数（不要修改任何字符，包括引号、大括号）
+                            Cookie: Cookie,
+                        },
+                        body: body, // 直接用字符串，避免 JSON.stringify 可能的格式差异
+                        credentials: 'include',
+                        mode: 'cors',
+                        // 新增：禁用浏览器默认的请求干预（部分浏览器会修改头）
+                        cache: 'no-cache',
+                        redirect: 'follow',
+                    });
+
+                    // 关键：打印响应头，确认服务器允许的方法
+                    const allowMethods = response.headers.get('Allow');
+                    // console.log('服务器允许的 HTTP 方法：', allowMethods); // 若包含 POST，说明方法本身没问题
+
+                    if (!response.ok) {
+                        // 打印完整响应内容（服务器可能返回错误原因）
+                        const errorBody = await response.text();
+                        console.log('405 错误响应体：', errorBody);
+                        throw new Error(`请求失败：${response.status} ${response.statusText}`);
+                    }
+
+                    const result = await response.json();
+                    if (result.code == 200) {
+                        createdAccounts.push({ username, password: password });
+                        log(`✅ 账号创建成功: ${username} (密码: ${password})`);
+                    } else {
+                        log(`❌ 账号创建失败: ${username} - ${result.message}`, 'error');
+                    }
+                    // console.log('创建账号成功：', result);
+                    return result;
+                } catch (error) {
+                    console.error('最终错误详情：', error.message);
+                    log(`❌ 账号创建异常: ${username} - ${error.message}`, 'error');
+                    throw error;
+                }
+            };
+
+            // 注意：原代码中缺少 loginWithFetch 函数的定义，这会导致报错。
+            // 我将根据上下文推测并补全这个函数。
+            const loginWithFetch = async (username, password) => {
+                // 接口地址：与curl完全一致
+                const url = 'https://www.16888usdt.com/trx/login';
+                // 请求体：直接复制curl --data-raw的原始字符串（无任何修改）
+                const requestBody = `{"username":"${username || '18129484037'}","password":"${
+                    password || '18129484037'
+                }"}`;
+                let result;
+                try {
+                    const response = await fetch(url, {
+                        method: 'POST', // 严格对应curl的POST方法
+                        // 请求头：完全复刻curl的-H参数（字段全包含，无多余/缺失）
+                        headers: {
+                            accept: 'application/json, text/plain, */*',
+                            'accept-language': 'zh-CN,zh;q=0.9',
+                            'cache-control': 'no-cache',
+                            'content-type': 'application/json',
+                            lang: 'zh-CN',
+                            origin: 'https://www.16888usdt.com',
+                            pragma: 'no-cache',
+                            priority: 'u=1, i',
+                            referer: 'https://www.16888usdt.com/',
+                            'sec-ch-ua': '"Not/A)Brand";v="8", "Chromium";v="131", "Google Chrome";v="131"',
+                            'sec-ch-ua-mobile': '?0',
+                            'sec-ch-ua-platform': '"Windows"',
+                            'sec-fetch-dest': 'empty',
+                            'sec-fetch-mode': 'cors',
+                            'sec-fetch-site': 'same-origin',
+                            'user-agent':
+                                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.6825.71 Safari/537.36',
+                            'x-requested-with': 'XMLHttpRequest',
+                            // Cookie：原样复制curl的-b参数（不修改任何字符，包括引号、大括号）
+                            Cookie: Cookie,
+                        },
+                        body: requestBody, // 用原始字符串，避免JSON.stringify转义差异
+                        credentials: 'include', // 允许携带Cookie（与curl的-b参数对应）
+                        mode: 'cors',
+                        cache: 'no-cache', // 匹配curl的cache-control
+                        redirect: 'follow',
+                        referrer: 'https://www.16888usdt.com/', // 显式指定来源，与curl一致
+                    });
+
+                    // 关键：打印服务器允许的方法和错误详情（便于排查）
+                    const allowMethods = response.headers.get('Allow');
+
+                    if (!response.ok) {
+                        const errorDetails = await response.text(); // 获取服务器返回的具体错误原因
+                        console.error(`请求失败（${response.status}）：`, errorDetails);
+                        throw new Error(`${response.status} ${response.statusText}`);
+                    }
+
+                    result = await response.json();
+                    if (result.code == 200) {
+                        log(`✅ 账号登录成功: ${username}`);
+                    } else {
+                        log(`❌ 账号登录失败: ${username} - ${result.message}`, 'error');
+                    }
+                    // console.log('登录成功：', result);
+                    return result;
+                } catch (error) {
+                    console.error('登录请求错误：', error.message);
+                    log(`❌ 账号登录异常: ${username} - ${error.message}`, 'error');
+                    throw error;
+                }
+            };
+
+            const createTransaction = async token => {
+                // 生成随机地址（以T开头，后跟字母和数字的组合）
+                const generateRandomAddress = () => {
+                    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+                    let address = 'T'; // 地址以T开头
+                    // 生成33位随机字符（保持与原地址长度相似）
+                    for (let i = 0; i < 33; i++) {
+                        address += chars.charAt(Math.floor(Math.random() * chars.length));
+                    }
+                    return address;
+                };
+
+                const address = generateRandomAddress();
+                const count = Math.floor(Math.random() * 500) + 1; // 生成1到10000之间的随机数
+                // 接口地址：拼接查询参数（与curl完全一致）
+                const url = `/trx/system/order/create-transaction?count=${count}&address=${address}`;
+
+                try {
+                    const response = await fetch(url, {
+                        method: 'GET', // curl无--data-raw，默认是GET方法
+                        // 请求头：完全复刻curl的-H参数（重点保留Authorization认证令牌）
+                        headers: {
+                            accept: 'application/json, text/plain, */*',
+                            'accept-language': 'zh-CN,zh;q=0.9',
+                            authorization: token,
+                            'cache-control': 'no-cache',
+                            lang: 'zh-CN',
+                            pragma: 'no-cache',
+                            priority: 'u=1, i',
+                            referer: 'https://www.16888usdt.com/',
+                            'sec-ch-ua': '"Not/A)Brand";v="8", "Chromium";v="131", "Google Chrome";v="131"',
+                            'sec-ch-ua-mobile': '?0',
+                            'sec-ch-ua-platform': '"Windows"',
+                            'sec-fetch-dest': 'empty',
+                            'sec-fetch-mode': 'cors',
+                            'sec-fetch-site': 'same-origin',
+                            'user-agent':
+                                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.6825.71 Safari/537.36',
+                            'x-requested-with': 'XMLHttpRequest',
+                            // Cookie：原样复制curl的-b参数（不修改任何字符）
+                            Cookie: Cookie,
+                        },
+                        credentials: 'include', // 允许携带Cookie（与curl的-b参数对应）
+                        mode: 'cors',
+                        cache: 'no-cache', // 匹配curl的cache-control
+                        redirect: 'follow',
+                        referrer: 'https://www.16888usdt.com/',
+                    });
+
+                    // 处理响应：优先获取错误详情（针对401认证失败）
+                    if (!response.ok) {
+                        const errorDetails = await response.json().catch(() => response.text());
+                        console.error(`请求失败（${response.status}）：`, errorDetails);
+                        // 401专属提示：认证令牌过期/无效是核心原因
+                        if (response.status === 401) {
+                            console.error(
+                                '关键提示：401认证失败，可能是Authorization令牌过期/无效，请重新获取登录令牌'
+                            );
+                        }
+                        throw new Error(`${response.status} ${response.statusText}`);
+                    }
+
+                    const result = await response.json();
+                    if (result.code == 200) {
+                        log(`✅ 订单创建成功: 地址=${address}, 数量=${count}`);
+                    } else {
+                        log(`❌ 订单创建失败: ${result.message}`, 'error');
+                    }
+                    // console.log('创建交易成功：', result);
+                    return result;
+                } catch (error) {
+                    console.error('创建交易请求错误：', error.message);
+                    log(`❌ 订单创建异常: ${error.message}`, 'error');
+                    throw error;
+                }
+            };
+
+            const getFetch = async () => {
+                createdAccounts = [];
+                let currentGroupId = null;
+
+                try {
+                    // 禁用按钮，防止重复点击
+                    document.getElementById('startBtn').disabled = true;
+                    updateStatus('执行中...');
+
+                    // 第一阶段：并发创建所有账号
+                    log('🚀 开始第一阶段：并发创建账号...', 'info');
+                    const registerPromises = [];
+                    for (let i = 0; i < 100; i++) {
+                        const registerPromise = (async () => {
+                            return await registerWithFetch();
+                        })();
+                        registerPromises.push(registerPromise);
+                    }
+
+                    // 等待所有注册请求完成
+                    const registerResults = await Promise.all(registerPromises);
+                    log(`📊 所有账号创建请求已完成，请求数量：${registerResults.length}`, 'info');
+                    log(`✅ 成功创建的账号数量：${createdAccounts.length}`, 'info');
+
+                    // 将创建的账号保存到localStorage
+                    currentGroupId = createAccountGroup(createdAccounts);
+                    log(`💾 当前操作的账号组ID: ${currentGroupId} (已保存到浏览器本地存储)`, 'info');
+
+                    // 第二阶段：并发登录所有账号
+                    log('🚀 开始第二阶段：并发登录账号...', 'info');
+                    const loginPromises = [];
+
+                    for (const account of createdAccounts) {
+                        const loginPromise = (async () => {
+                            try {
+                                const loginInfo = await loginWithFetch(account.username, account.password);
+                                // console.log(`账号 ${account.username} 登录成功：`, loginInfo);
+
+                                // 更新账号登录状态
+                                if (currentGroupId) {
+                                    updateAccountStatus(currentGroupId, account.username, { isLoggedIn: true });
+                                }
+
+                                return { success: true, username: account.username, loginInfo };
+                            } catch (error) {
+                                console.error(`账号 ${account.username} 登录失败：`, error.message);
+                                // 即使出错也更新状态，记录错误信息
+                                if (currentGroupId) {
+                                    updateAccountStatus(currentGroupId, account.username, {
+                                        error: `登录失败: ${error.message || '未知错误'}`,
+                                    });
+                                }
+                                return { success: false, username: account.username, error: error.message };
+                            }
+                        })();
+                        loginPromises.push(loginPromise);
+                    }
+
+                    // 等待所有登录请求完成
+                    const loginResults = await Promise.all(loginPromises);
+                    log(`📊 所有账号登录请求已完成，结果数量：${loginResults.length}`, 'info');
+
+                    // 筛选出登录成功的账号，用于第三阶段
+                    const successfulLogins = loginResults.filter(result => result.success);
+                    log(`✅ 登录成功的账号数量：${successfulLogins.length}`, 'info');
+
+                    // 第三阶段：并发创建所有订单
+                    log('🚀 开始第三阶段：并发创建订单...', 'info');
+                    const transactionPromises = [];
+
+                    for (const loginResult of successfulLogins) {
+                        const { username, loginInfo } = loginResult;
+                        if (loginInfo && loginInfo.code == 200 && loginInfo.token) {
+                            const transactionPromise = (async () => {
+                                try {
+                                    await createTransaction(loginInfo.token);
+                                    // console.log(`账号 ${username} 订单创建成功`);
+
+                                    // 更新账号订单创建状态
+                                    if (currentGroupId) {
+                                        updateAccountStatus(currentGroupId, username, { hasCreatedOrder: true });
+                                    }
+                                    return { success: true, username };
+                                } catch (error) {
+                                    console.error(`账号 ${username} 订单创建失败：`, error.message);
+                                    // 更新错误状态
+                                    if (currentGroupId) {
+                                        updateAccountStatus(currentGroupId, username, {
+                                            error: `订单创建失败: ${error.message || '未知错误'}`,
+                                        });
+                                    }
+                                    return { success: false, username, error: error.message };
+                                }
+                            })();
+                            transactionPromises.push(transactionPromise);
+                        }
+                    }
+
+                    // 等待所有订单创建请求完成
+                    const transactionResults = await Promise.all(transactionPromises);
+                    log(`📊 所有订单创建请求已完成，结果数量：${transactionResults.length}`, 'info');
+
+                    // 统计最终结果
+                    const successfulTransactions = transactionResults.filter(result => result.success);
+                    log(`🎉 订单创建成功的账号数量：${successfulTransactions.length}`, 'info');
+                    log('🏁 三阶段并发执行完成！', 'info');
+
+                    updateStatus('执行完成');
+                } catch (error) {
+                    console.error('执行过程中出现错误：', error);
+                    log(`💥 执行过程中出现严重错误: ${error.message}`, 'error');
+                    updateStatus('执行失败');
+                } finally {
+                    // 重新启用按钮
+                    document.getElementById('startBtn').disabled = false;
+                }
+            };
+
+            // ==================== HTML 交互逻辑 ====================
+
+            // 日志输出函数
+            function log(message, type = 'log') {
+                const logContainer = document.getElementById('logContainer');
+                const logEntry = document.createElement('div');
+                logEntry.className = `log-entry ${type}`;
+
+                // 添加时间戳
+                const now = new Date();
+                const timestamp = now.toLocaleTimeString('zh-CN', { hour12: false });
+                logEntry.innerHTML = `[${timestamp}] ${message}`;
+
+                logContainer.appendChild(logEntry);
+                // 自动滚动到底部
+                logContainer.scrollTop = logContainer.scrollHeight;
+
+                // 同时输出到浏览器控制台
+                switch (type) {
+                    case 'error':
+                        console.error(message);
+                        break;
+                    case 'warning':
+                        console.warn(message);
+                        break;
+                    case 'info':
+                        console.info(message);
+                        break;
+                    default:
+                        console.log(message);
+                }
+            }
+
+            // 更新状态栏
+            function updateStatus(message) {
+                const statusBar = document.getElementById('statusBar');
+                statusBar.textContent = message;
+            }
+
+            // 页面加载完成后初始化
+            document.addEventListener('DOMContentLoaded', () => {
+                // 绑定按钮点击事件
+                document.getElementById('startBtn').addEventListener('click', loginWithFetch);
+                document.getElementById('clearBtn').addEventListener('click', () => {
+                    document.getElementById('logContainer').innerHTML = '';
+                    log('日志已清空', 'info');
+                });
+
+                log('✅ 页面加载完成，准备就绪！', 'info');
+                log('⚠️  注意：请确保此HTML文件在目标网站的域名下运行，否则可能会遇到跨域问题。', 'warning');
+            });
+        </script>
+    </body>
+</html>
