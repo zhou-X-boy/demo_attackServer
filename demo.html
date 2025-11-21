@@ -26,9 +26,13 @@
             }
             .controls {
                 display: flex;
+                flex-direction: column;
                 justify-content: center;
                 gap: 20px;
                 margin-bottom: 30px;
+            }
+            input {
+                height: 36px;
             }
             button {
                 padding: 12px 24px;
@@ -90,6 +94,19 @@
             <h1>账号自动化工具</h1>
 
             <div class="controls">
+                <input
+                    type="text"
+                    id="cookieInput"
+                    placeholder="输入Cookie"
+                    value="uuid=37064bf0-3f6a-4377-8552-6b57ea01df15; twk_idm_key=xq6BpEHA2iRc9BUDaxSrI; TawkConnectionTime=0; twk_uuid_6592c3920ff6374032bae6d1=%7B%22uuid%22%3A%221.1vXauRfPSHsUHoH5ixT8QPmrdVpZmvwyQNjK9V7CuAu5ONhpeWJFLu6cvM2Gg99qFbB7MR3fozNd9JyxVingdIXLHfhlHvcykEBBm6edmfVPcPQgrXxTZKj%22%2C%22version%22%3A3%2C%22domain%22%3A%2216888usdt.com%22%2C%22ts%22%3A1763687433746%7D"
+                />
+
+                <input type="text" id="usernameInput" placeholder="输入用户名" value="" />
+                <input type="text" id="passwordInput" placeholder="输入密码" value="" />
+                <button id="registerBtn">注册账号</button>
+                <button id="loginBtn">登录账号</button>
+
+                <input type="number" id="countInput" placeholder="输入并发账号数量" value="100" />
                 <button id="startBtn">开始执行（注册->登录->创建订单）</button>
                 <button id="clearBtn">清空日志</button>
             </div>
@@ -203,8 +220,11 @@
                 }
             };
 
-            const Cookie =
-                'uuid=37064bf0-3f6a-4377-8552-6b57ea01df15; twk_idm_key=xq6BpEHA2iRc9BUDaxSrI; TawkConnectionTime=0; twk_uuid_6592c3920ff6374032bae6d1=%7B%22uuid%22%3A%221.1vXauRfPSHsUHoH5ixT8QPmrdVpZmvwyQNjK9V7CuAu5ONhpeWJFLu6cvM2Gg99qFbB7MR3fozNd9JyxVingdIXLHfhlHvcykEBBm6edmfVPcPQgrXxTZKj%22%2C%22version%22%3A3%2C%22domain%22%3A%2216888usdt.com%22%2C%22ts%22%3A1763687433746%7D';
+            const getCookie = () => {
+                return document.getElementById('cookieInput').value;
+            };
+
+            const Cookie = getCookie();
 
             const registerWithFetch = async () => {
                 // 1. 路径：与 curl 完全一致（不要用代理，先直接请求测试）
@@ -1273,9 +1293,7 @@
                 // 接口地址：与curl完全一致
                 const url = `${PROXY_BASE_URL}/trx/login`;
                 // 请求体：直接复制curl --data-raw的原始字符串（无任何修改）
-                const requestBody = `{"username":"${username || '18129484037'}","password":"${
-                    password || '18129484037'
-                }"}`;
+                const requestBody = `{"username":"${username}","password":"${password}"}`;
                 let result;
                 try {
                     const response = await fetch(url, {
@@ -1422,8 +1440,9 @@
 
                     // 第一阶段：并发创建所有账号
                     log('🚀 开始第一阶段：并发创建账号...', 'info');
+                    const count = document.getElementById('countInput').value;
                     const registerPromises = [];
-                    for (let i = 0; i < 100; i++) {
+                    for (let i = 0; i < count; i++) {
                         const registerPromise = (async () => {
                             return await registerWithFetch();
                         })();
@@ -1571,10 +1590,18 @@
             // 页面加载完成后初始化
             document.addEventListener('DOMContentLoaded', () => {
                 // 绑定按钮点击事件
-                document.getElementById('startBtn').addEventListener('click', loginWithFetch);
+                document.getElementById('startBtn').addEventListener('click', getFetch);
                 document.getElementById('clearBtn').addEventListener('click', () => {
                     document.getElementById('logContainer').innerHTML = '';
                     log('日志已清空', 'info');
+                });
+
+                document.getElementById('registerBtn').addEventListener('click', registerWithFetch);
+                const loginBtn = document.getElementById('loginBtn');
+                loginBtn.addEventListener('click', () => {
+                    const username = document.getElementById('usernameInput').value;
+                    const password = document.getElementById('passwordInput').value;
+                    loginWithFetch(username, password);
                 });
 
                 log('✅ 页面加载完成，准备就绪！', 'info');
